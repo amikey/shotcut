@@ -221,7 +221,15 @@ protected:
 
 int main(int argc, char **argv)
 {
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
+#if defined(Q_OS_MAC)
+    QSurfaceFormat fmt;
+    fmt.setDepthBufferSize(0);
+    fmt.setStencilBufferSize(0);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setMajorVersion(3);
+    fmt.setMinorVersion(2);
+    QSurfaceFormat::setDefaultFormat(fmt);
+#elif defined(Q_OS_UNIX)
     QCoreApplication::setAttribute(Qt::AA_X11InitThreads);
 #endif
     Application a(argc, argv);

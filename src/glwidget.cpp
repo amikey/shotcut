@@ -121,6 +121,8 @@ void GLWidget::initializeGL()
     qDebug() << "OpenGL renderer" << QString::fromUtf8((const char*) glGetString(GL_RENDERER));
     qDebug() << "OpenGL threaded?" << openglContext()->supportsThreadedOpenGL();
     qDebug() << "OpenGL ES?" << openglContext()->isOpenGLES();
+    qDebug() << "OpenGL surface format" << openglContext()->surface()->format();
+    qDebug() << "OpenGL profile" << openglContext()->surface()->format().profile();
 
     if (m_glslManager && openglContext()->isOpenGLES()) {
         delete m_glslManager;
@@ -217,11 +219,20 @@ void GLWidget::createShader()
 {
     m_shader = new QOpenGLShaderProgram;
     m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
+#ifdef Q_OS_MAC
+                                     "#version 150\n"
                                      "uniform highp mat4 projection;"
                                      "uniform highp mat4 modelView;"
-                                     "attribute highp vec4 vertex;"
-                                     "attribute highp vec2 texCoord;"
-                                     "varying highp vec2 coordinates;"
+                                     "uniform highp vec4 vertex;"
+                                     "uniform highp vec2 texCoord;"
+                                     "out highp vec2 coordinates;"
+#else
+                                      "uniform highp mat4 projection;"
+                                      "uniform highp mat4 modelView;"
+                                      "attribute highp vec4 vertex;"
+                                      "attribute highp vec2 texCoord;"
+                                      "varying highp vec2 coordinates;"
+#endif
                                      "void main(void) {"
                                      "  gl_Position = projection * modelView * vertex;"
                                      "  coordinates = texCoord;"
@@ -237,6 +248,31 @@ void GLWidget::createShader()
         m_textureLocation[0] = m_shader->uniformLocation("tex");
     } else {
         m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
+#ifdef Q_OS_MAC
+                                          "#version 150\n"
+                                          "uniform sampler2D Ytex, Utex, Vtex;"
+                                          "uniform lowp int colorspace;"
+                                          "in highp vec2 coordinates;"
+                                          "out vec4 fragColor;"
+                                          "void main(void) {"
+                                          "  mediump vec3 texel;"
+                                          "  texel.r = texture(Ytex, coordinates).r - 0.0625;" // Y
+                                          "  texel.g = texture(Utex, coordinates).r - 0.5;"    // U
+                                          "  texel.b = texture(Vtex, coordinates).r - 0.5;"    // V
+                                          "  mediump mat3 coefficients;"
+                                          "  if (colorspace == 601) {"
+                                          "    coefficients = mat3("
+                                          "      1.1643,  1.1643,  1.1643," // column 1
+                                          "      0.0,    -0.39173, 2.017," // column 2
+                                          "      1.5958, -0.8129,  0.0);" // column 3
+                                          "  } else {" // ITU-R 709
+                                          "    coefficients = mat3("
+                                          "      1.1643, 1.1643, 1.1643," // column 1
+                                          "      0.0,   -0.213,  2.112," // column 2
+                                          "      1.793, -0.533,  0.0);" // column 3
+                                          "  }"
+                                          "  fragColor = vec4(coefficients * texel, 1.0);"
+#else
                                           "uniform sampler2D Ytex, Utex, Vtex;"
                                           "uniform lowp int colorspace;"
                                           "varying highp vec2 coordinates;"
@@ -258,6 +294,7 @@ void GLWidget::createShader()
                                           "      1.793, -0.533,  0.0);" // column 3
                                           "  }"
                                           "  gl_FragColor = vec4(coefficients * texel, 1.0);"
+#endif
                                           "}");
         m_shader->link();
         m_textureLocation[0] = m_shader->uniformLocation("Ytex");
@@ -267,8 +304,13 @@ void GLWidget::createShader()
     }
     m_projectionLocation = m_shader->uniformLocation("projection");
     m_modelViewLocation = m_shader->uniformLocation("modelView");
+#ifdef Q_OS_MAC
+    m_vertexLocation = m_shader->uniformLocation("vertex");
+    m_texCoordLocation = m_shader->uniformLocation("texCoord");
+#else
     m_vertexLocation = m_shader->attributeLocation("vertex");
     m_texCoordLocation = m_shader->attributeLocation("texCoord");
+#endif
 }
 
 static void uploadTextures(QOpenGLContext* context, SharedFrame& frame, GLuint texture[])

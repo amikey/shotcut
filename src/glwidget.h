@@ -21,7 +21,11 @@
 
 #include <QSemaphore>
 #include <QQuickView>
+#ifdef Q_OS_MAC
+#include <QOpenGLFunctions_3_2_Core>
+#else
 #include <QOpenGLFunctions>
+#endif
 #include <QOpenGLShaderProgram>
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLContext>
@@ -32,7 +36,6 @@
 #include "mltcontroller.h"
 #include "sharedframe.h"
 
-class QOpenGLFunctions_3_2_Core;
 class QOpenGLTexture;
 class QmlFilter;
 class QmlMetadata;
@@ -45,7 +48,11 @@ class FrameRenderer;
 
 typedef void* ( *thread_function_t )( void* );
 
+#ifdef Q_OS_MAC
+class GLWidget : public QQuickView, public Controller, protected QOpenGLFunctions_3_2_Core
+#else
 class GLWidget : public QQuickView, public Controller, protected QOpenGLFunctions
+#endif
 {
     Q_OBJECT
     Q_PROPERTY(QRect rect READ rect NOTIFY rectChanged)
