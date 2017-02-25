@@ -129,7 +129,6 @@ private:
     float m_zoom;
     QPoint m_offset;
     QOffscreenSurface m_offscreenSurface;
-    QOpenGLContext* m_shareContext;
     SharedFrame m_sharedFrame;
     QMutex m_mutex;
 
