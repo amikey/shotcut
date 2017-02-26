@@ -774,7 +774,7 @@ RenderThread::RenderThread(thread_function_t function, void *data, QOpenGLContex
     if (Settings.playerGPU() && context) {
         QSurfaceFormat format(context->format());
         format.setMajorVersion(3);
-        format.setMinorVersion(2);
+        format.setMinorVersion(0);
         format.setProfile(QSurfaceFormat::CoreProfile);
         m_context = new QOpenGLContext;
         m_context->setFormat(format);
