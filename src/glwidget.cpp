@@ -33,8 +33,6 @@
 #include "qmltypes/qmlfilter.h"
 #include "mainwindow.h"
 
-#define USE_GL_SYNC // Use glFinish() if not defined.
-
 #ifdef Q_OS_MAC
 static const int FRAMEDISPLAYED_MIN_MS = 80; // max 12.5 fps
 #else
@@ -45,15 +43,6 @@ static const int FRAMEDISPLAYED_MIN_MS = 10; // max 100 fps
 #define check_error(fn) {}
 #else
 #define check_error(fn) { int err = fn->glGetError(); if (err != GL_NO_ERROR) { LOG_ERROR() << "GL error"  << hex << err << dec << "at" << __FILE__ << ":" << __LINE__; } }
-#endif
-
-#ifndef GL_TIMEOUT_IGNORED
-#define GL_TIMEOUT_IGNORED 0xFFFFFFFFFFFFFFFFull
-#endif
-
-#ifndef Q_OS_WIN
-typedef GLenum (*ClientWaitSync_fp) (GLsync sync, GLbitfield flags, GLuint64 timeout);
-static ClientWaitSync_fp ClientWaitSync = 0;
 #endif
 
 using namespace Mlt;
@@ -141,20 +130,6 @@ void GLWidget::initializeGL()
     }
 
     createShader();
-
-#if defined(USE_GL_SYNC) && !defined(Q_OS_WIN)
-    // getProcAddress is not working for me on Windows.
-    if (Settings.playerGPU()) {
-        if (m_glslManager && quickWindow()->openglContext()->hasExtension("GL_ARB_sync")) {
-            ClientWaitSync = (ClientWaitSync_fp) quickWindow()->openglContext()->getProcAddress("glClientWaitSync");
-        }
-        if (!ClientWaitSync) {
-            emit gpuNotSupported();
-            delete m_glslManager;
-            m_glslManager = 0;
-        }
-    }
-#endif
 
     quickWindow()->openglContext()->doneCurrent();
     m_frameRenderer = new FrameRenderer(quickWindow()->openglContext(), &m_offscreenSurface);
