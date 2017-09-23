@@ -1291,12 +1291,11 @@ void MainWindow::readPlayerSettings()
     }
 
     QString profile = Settings.playerProfile();
-    // Automatic not permitted for SDI/HDMI
-    if (!external.isEmpty() && !ok && profile.isEmpty())
+    if (profile.isEmpty())
         profile = "atsc_720p_50";
     foreach (QAction* a, m_profileGroup->actions()) {
-        // Automatic not permitted for SDI/HDMI
-        if (a->data().toString().isEmpty() && !external.isEmpty() && !ok)
+        // Automatic not permitted for SDI/HDMI or GPU processing.
+        if (a->data().toString().isEmpty() && ((!external.isEmpty() && !ok) || Settings.playerGPU()))
             a->setDisabled(true);
         if (a->data().toString() == profile) {
             a->setChecked(true);
@@ -2698,6 +2697,8 @@ void MainWindow::on_actionJack_triggered(bool checked)
 
 void MainWindow::on_actionGPU_triggered(bool checked)
 {
+    if (Settings.playerProfile().isEmpty() && checked)
+        showStatusMessage(tr("Automatic Video Mode is not compatible with GPU Processing."));
     Settings.setPlayerGPU(checked);
     QMessageBox dialog(QMessageBox::Information,
                        qApp->applicationName(),
