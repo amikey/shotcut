@@ -250,13 +250,14 @@ static void uploadTextures(QOpenGLContext* context, SharedFrame& frame, GLuint t
     int height = frame.get_image_height();
     const uint8_t* image = frame.get_image();
     QOpenGLFunctions* f = context->functions();
-    GLint format = Settings.playerGPU()? GL_RGBA : GL_LUMINANCE;
+    GLint format = (frame.get_image_format() == mlt_image_rgb24)? GL_RGB : GL_LUMINANCE;
+    int textureCount = (frame.get_image_format() == mlt_image_rgb24)? 1 : 3;
 
     // Upload each plane of YUV to a texture.
     if (texture[0])
-        f->glDeleteTextures(3, texture);
+        f->glDeleteTextures(textureCount, texture);
     check_error(f);
-    f->glGenTextures(3, texture);
+    f->glGenTextures(textureCount, texture);
     check_error(f);
 
     f->glBindTexture  (GL_TEXTURE_2D, texture[0]);
@@ -627,8 +628,7 @@ int GLWidget::reconfigure(bool isMulti)
                 m_threadStartEvent = m_consumer->listen("consumer-thread-started", this, (mlt_listener) onThreadStarted);
             if (!m_threadStopEvent)
                 m_threadStopEvent = m_consumer->listen("consumer-thread-stopped", this, (mlt_listener) onThreadStopped);
-            if (!serviceName.startsWith("decklink") && !isMulti)
-                m_consumer->set("mlt_image_format", "rgb24a");
+            m_consumer->set("mlt_image_format", "rgb24a");
         } else {
             emit started();
         }
@@ -804,7 +804,7 @@ FrameRenderer::~FrameRenderer()
 void FrameRenderer::showFrame(Mlt::Frame frame)
 {
     // Convert the image format before creating the SharedFrame.
-    mlt_image_format format = Settings.playerGPU()? mlt_image_rgb24a : mlt_image_yuv420p;
+    mlt_image_format format = Settings.playerGPU()? mlt_image_rgb24 : mlt_image_yuv420p;
     int width = 0;
     int height = 0;
     frame.get_image(format, width, height);
