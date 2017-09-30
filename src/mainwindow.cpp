@@ -1856,6 +1856,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (continueJobsRunning() && continueModified()) {
         if (!m_htmlEditor || m_htmlEditor->close()) {
+            m_player->pause();
             writeSettings();
             QThreadPool::globalInstance()->clear();
             AudioLevelsTask::closeAll();
