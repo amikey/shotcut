@@ -758,41 +758,31 @@ void MainWindow::setupSettingsMenu()
     ui->actionJack = 0;
 
     // Setup the display method actions.
-    if (!Settings.playerGPU()) {
-        group = new QActionGroup(this);
-        ui->actionDrawingAutomatic->setData(0);
-        group->addAction(ui->actionDrawingAutomatic);
-        ui->actionDrawingDirectX->setData(Qt::AA_UseOpenGLES);
-        group->addAction(ui->actionDrawingDirectX);
-        ui->actionDrawingOpenGL->setData(Qt::AA_UseDesktopOpenGL);
-        group->addAction(ui->actionDrawingOpenGL);
-        // Software rendering is not currently working.
-        delete ui->actionDrawingSoftware;
-        // ui->actionDrawingSoftware->setData(Qt::AA_UseSoftwareOpenGL);
-        // group->addAction(ui->actionDrawingSoftware);
-        connect(group, SIGNAL(triggered(QAction*)), this, SLOT(onDrawingMethodTriggered(QAction*)));
-        switch (Settings.drawMethod()) {
-        case Qt::AA_UseDesktopOpenGL:
-            ui->actionDrawingOpenGL->setChecked(true);
-            break;
-        case Qt::AA_UseOpenGLES:
-            delete ui->actionGPU;
-            ui->actionGPU = 0;
-            ui->actionDrawingDirectX->setChecked(true);
-            break;
-        case Qt::AA_UseSoftwareOpenGL:
-            delete ui->actionGPU;
-            ui->actionGPU = 0;
-            ui->actionDrawingSoftware->setChecked(true);
-            break;
-        default:
-            ui->actionDrawingAutomatic->setChecked(true);
-            break;
-        }
-    } else {
-        // GPU mode only works with OpenGL.
-        delete ui->menuDrawingMethod;
-        ui->menuDrawingMethod = 0;
+    group = new QActionGroup(this);
+    ui->actionDrawingAutomatic->setData(0);
+    group->addAction(ui->actionDrawingAutomatic);
+    ui->actionDrawingDirectX->setData(Qt::AA_UseOpenGLES);
+    group->addAction(ui->actionDrawingDirectX);
+    ui->actionDrawingOpenGL->setData(Qt::AA_UseDesktopOpenGL);
+    group->addAction(ui->actionDrawingOpenGL);
+    // Software rendering is not currently working.
+    delete ui->actionDrawingSoftware;
+    // ui->actionDrawingSoftware->setData(Qt::AA_UseSoftwareOpenGL);
+    // group->addAction(ui->actionDrawingSoftware);
+    connect(group, SIGNAL(triggered(QAction*)), this, SLOT(onDrawingMethodTriggered(QAction*)));
+    switch (Settings.drawMethod()) {
+    case Qt::AA_UseDesktopOpenGL:
+        ui->actionDrawingOpenGL->setChecked(true);
+        break;
+    case Qt::AA_UseOpenGLES:
+        ui->actionDrawingDirectX->setChecked(true);
+        break;
+    case Qt::AA_UseSoftwareOpenGL:
+        ui->actionDrawingSoftware->setChecked(true);
+        break;
+    default:
+        ui->actionDrawingAutomatic->setChecked(true);
+        break;
     }
 #else
     delete ui->menuDrawingMethod;
@@ -1329,6 +1319,7 @@ void MainWindow::writeSettings()
     if (isFullScreen())
         showNormal();
 #endif
+    Settings.setPlayerGPU(ui->actionGPU->isChecked());
     Settings.setWindowGeometry(saveGeometry());
     Settings.setWindowState(saveState());
     Settings.sync();
@@ -2700,7 +2691,6 @@ void MainWindow::on_actionGPU_triggered(bool checked)
 {
     if (Settings.playerProfile().isEmpty() && checked)
         showStatusMessage(tr("Automatic Video Mode is not compatible with GPU Processing."));
-    Settings.setPlayerGPU(checked);
     QMessageBox dialog(QMessageBox::Information,
                        qApp->applicationName(),
                        tr("You must restart Shotcut to switch using GPU processing.\n"
@@ -2959,6 +2949,23 @@ void MainWindow::on_actionScrubAudio_triggered(bool checked)
 #ifdef Q_OS_WIN
 void MainWindow::onDrawingMethodTriggered(QAction *action)
 {
+    if (Qt::AA_UseOpenGLES == action->data().toInt()) {
+
+        QMessageBox dialog(QMessageBox::Information,
+                           qApp->applicationName(),
+                           tr("GPU Processing only works with OpenGL.\n"
+                              "Choosing DirectX will turn off GPU Processing.\n"
+                              "Do you want to continue?"),
+                           QMessageBox::No | QMessageBox::Yes,
+                           this);
+        dialog.setDefaultButton(QMessageBox::Yes);
+        dialog.setEscapeButton(QMessageBox::No);
+        dialog.setWindowModality(QmlApplication::dialogModality());
+        if (dialog.exec() == QMessageBox::Yes)
+            ui->actionGPU->setChecked(false);
+        else
+            return;
+    }
     Settings.setDrawMethod(action->data().toInt());
     QMessageBox dialog(QMessageBox::Information,
                        qApp->applicationName(),
