@@ -2949,7 +2949,7 @@ void MainWindow::on_actionScrubAudio_triggered(bool checked)
 #ifdef Q_OS_WIN
 void MainWindow::onDrawingMethodTriggered(QAction *action)
 {
-    if (Qt::AA_UseOpenGLES == action->data().toInt()) {
+    if (Qt::AA_UseOpenGLES == action->data().toInt() && ui->actionGPU->isChecked()) {
 
         QMessageBox dialog(QMessageBox::Information,
                            qApp->applicationName(),
