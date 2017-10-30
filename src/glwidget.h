@@ -45,6 +45,15 @@ class FrameRenderer;
 
 typedef void* ( *thread_function_t )( void* );
 
+struct TexturePoolItem
+{
+    bool used;
+    GLuint texture;
+    int width;
+    int height;
+    GLint format;
+};
+
 class GLWidget : public QQuickWidget, public Controller, protected QOpenGLFunctions
 {
     Q_OBJECT
@@ -86,6 +95,9 @@ public:
     QImage image() const;
     void requestImage() const;
 
+    TexturePoolItem* getTexture(QOpenGLFunctions* f, int width, int height, GLint format);
+    static void releaseTexture(TexturePoolItem*);
+
 public slots:
     void onFrameDisplayed(const SharedFrame& frame);
     void setZoom(float zoom);
@@ -93,6 +105,7 @@ public slots:
     void setOffsetY(int y);
     void setBlankScene();
     void setCurrentFilter(QmlFilter* filter, QmlMetadata* meta);
+    void updateTexture(TexturePoolItem* textures[]);
 
 signals:
     void frameDisplayed(const SharedFrame& frame);
@@ -109,7 +122,7 @@ signals:
 
 private:
     QRect m_rect;
-    GLuint m_texture[3];
+    TexturePoolItem* m_texture[3];
     QOpenGLShaderProgram* m_shader;
     QPoint m_dragStart;
     Filter* m_glslManager;
@@ -131,13 +144,14 @@ private:
     QOffscreenSurface m_offscreenSurface;
     SharedFrame m_sharedFrame;
     QMutex m_mutex;
+    QList<TexturePoolItem*> m_texturePool;
+    QMutex m_texturePoolMutex;
 
     static void on_frame_show(mlt_consumer, void* self, mlt_frame frame);
 
 private slots:
     void initializeGL();
     void resizeGL(int width, int height);
-    void updateTexture(GLuint yName, GLuint uName, GLuint vName);
     void paintGL();
 
 protected:
@@ -168,7 +182,7 @@ class FrameRenderer : public QThread
 {
     Q_OBJECT
 public:
-    FrameRenderer(QOpenGLContext* shareContext, QSurface* surface);
+    FrameRenderer(GLWidget* glwidget, QOpenGLContext* shareContext, QSurface* surface);
     ~FrameRenderer();
     QSemaphore* semaphore() { return &m_semaphore; }
     QOpenGLContext* context() const { return m_context; }
@@ -181,7 +195,6 @@ public slots:
     void cleanup();
 
 signals:
-    void textureReady(GLuint yName, GLuint uName = 0, GLuint vName = 0);
     void frameDisplayed(const SharedFrame& frame);
     void imageReady();
 
@@ -193,10 +206,9 @@ private:
     qint64 m_previousMSecs;
     bool m_imageRequested;
     QImage m_image;
+    GLWidget* m_glwidget;
 
 public:
-    GLuint m_renderTexture[3];
-    GLuint m_displayTexture[3];
     QOpenGLFunctions_3_2_Core* m_gl32;
 };
 

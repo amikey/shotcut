@@ -47,6 +47,51 @@ static const int FRAMEDISPLAYED_MIN_MS = 10; // max 100 fps
 
 using namespace Mlt;
 
+TexturePoolItem* GLWidget::getTexture(QOpenGLFunctions* f, int width, int height, GLint format)
+{
+    m_texturePoolMutex.lock();
+    for (int i = 0; i < m_texturePool.count(); ++i) {
+        TexturePoolItem* tex = m_texturePool[i];
+        if (!tex->used && (tex->width == width) && (tex->height == height) && (tex->format == format)) {
+            f->glBindTexture(GL_TEXTURE_2D, tex->texture);
+            f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            f->glBindTexture( GL_TEXTURE_2D, 0);
+            tex->used = true;
+            m_texturePoolMutex.unlock();
+            return tex;
+        }
+    }
+    m_texturePoolMutex.unlock();
+
+    GLuint tex = 0;
+    f->glGenTextures(1, &tex);
+    if (!tex) {
+        return 0;
+    }
+
+    TexturePoolItem* gtex = new TexturePoolItem;
+    if (!gtex) {
+        f->glDeleteTextures(1, &tex);
+        return 0;
+    }
+
+    gtex->texture = tex;
+    gtex->width = width;
+    gtex->height = height;
+    gtex->format = format;
+    gtex->used = true;
+    m_texturePoolMutex.lock();
+    m_texturePool.push_back(gtex);
+    m_texturePoolMutex.unlock();
+    return gtex;
+}
+
+void GLWidget::releaseTexture(TexturePoolItem* texture)
+{
+    texture->used = false;
+}
+
 GLWidget::GLWidget(QObject *parent)
     : QQuickWidget(QmlUtilities::sharedEngine(), (QWidget*) parent)
     , Controller()
@@ -103,6 +148,14 @@ GLWidget::~GLWidget()
         m_frameRenderer->deleteLater();
     }
     delete m_shader;
+    m_texturePoolMutex.lock();
+    while (!m_texturePool.isEmpty()) {
+        TexturePoolItem* texture = m_texturePool.last();
+        glDeleteTextures(1, &texture->texture);
+        delete texture;
+        m_texturePool.pop_back();
+    }
+    m_texturePoolMutex.unlock();
 }
 
 void GLWidget::initializeGL()
@@ -132,11 +185,10 @@ void GLWidget::initializeGL()
     createShader();
 
     quickWindow()->openglContext()->doneCurrent();
-    m_frameRenderer = new FrameRenderer(quickWindow()->openglContext(), &m_offscreenSurface);
+    m_frameRenderer = new FrameRenderer(this, quickWindow()->openglContext(), &m_offscreenSurface);
     quickWindow()->openglContext()->makeCurrent(quickWindow());
 
-    connect(m_frameRenderer, SIGNAL(frameDisplayed(const SharedFrame&)), this, SIGNAL(frameDisplayed(const SharedFrame&)), Qt::QueuedConnection);
-    connect(m_frameRenderer, SIGNAL(textureReady(GLuint,GLuint,GLuint)), SLOT(updateTexture(GLuint,GLuint,GLuint)), Qt::DirectConnection);
+    connect(m_frameRenderer, SIGNAL(frameDisplayed(const SharedFrame&)), SIGNAL(frameDisplayed(const SharedFrame&)), Qt::QueuedConnection);
     connect(m_frameRenderer, SIGNAL(frameDisplayed(const SharedFrame&)), SLOT(onFrameDisplayed(const SharedFrame&)), Qt::QueuedConnection);
     connect(m_frameRenderer, SIGNAL(imageReady()), SIGNAL(imageReady()));
 
@@ -251,15 +303,8 @@ static void uploadTextures(QOpenGLContext* context, SharedFrame& frame, GLuint t
     const uint8_t* image = frame.get_image();
     QOpenGLFunctions* f = context->functions();
     GLint format = (frame.get_image_format() == mlt_image_rgb24)? GL_RGB : GL_LUMINANCE;
-    int textureCount = (frame.get_image_format() == mlt_image_rgb24)? 1 : 3;
 
-    // Upload each plane of YUV to a texture.
-    if (texture[0])
-        f->glDeleteTextures(textureCount, texture);
-    check_error(f);
-    f->glGenTextures(textureCount, texture);
-    check_error(f);
-
+    // Upload each image plane to a texture.
     f->glBindTexture  (GL_TEXTURE_2D, texture[0]);
     check_error(f);
     f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -314,6 +359,7 @@ void GLWidget::paintGL()
 #endif
     int width = this->width() * devicePixelRatio();
     int height = this->height() * devicePixelRatio();
+    QMutexLocker locker(&m_mutex);
 
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
@@ -326,22 +372,24 @@ void GLWidget::paintGL()
     check_error(f);
 
     if (!(Settings.playerGPU() || quickWindow()->openglContext()->supportsThreadedOpenGL())) {
-        m_mutex.lock();
         if (!m_sharedFrame.is_valid()) {
             m_mutex.unlock();
             return;
         }
-        uploadTextures(quickWindow()->openglContext(), m_sharedFrame, m_texture);
-        m_mutex.unlock();
+        GLuint gltextures[3];
+        for (int i = 0; i < 3; ++i)
+            gltextures[i] = m_texture[i]->texture;
+        uploadTextures(quickWindow()->openglContext(), m_sharedFrame, gltextures);
     }
 
-    if (!m_texture[0]) return;
+    if (!m_texture[0] || !m_texture[0]->texture)
+        return;
 
     // Bind textures.
     for (int i = 0; i < 3; ++i) {
-        if (m_texture[i]) {
+        if (m_texture[i] && m_texture[i]->texture) {
             glActiveTexture(GL_TEXTURE0 + i);
-            glBindTexture(GL_TEXTURE_2D, m_texture[i]);
+            glBindTexture(GL_TEXTURE_2D, m_texture[i]->texture);
             check_error(f);
         }
     }
@@ -408,7 +456,7 @@ void GLWidget::paintGL()
     m_shader->disableAttributeArray(m_texCoordLocation);
     m_shader->release();
     for (int i = 0; i < 3; ++i) {
-        if (m_texture[i]) {
+        if (m_texture[i] && m_texture[i]->texture) {
             glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D, 0);
             check_error(f);
@@ -527,7 +575,7 @@ void GLWidget::stopGlsl()
     //some changes in the 15.01 and 15.03 releases have created regression
     //with respect to restarting the consumer in GPU mode.
 //    m_glslManager->fire_event("close glsl");
-    m_texture[0] = 0;
+    m_texture[0]->texture = 0;
 }
 
 static void onThreadStopped(mlt_properties owner, GLWidget* self)
@@ -716,11 +764,14 @@ void GLWidget::setCurrentFilter(QmlFilter* filter, QmlMetadata* meta)
     }
 }
 
-void GLWidget::updateTexture(GLuint yName, GLuint uName, GLuint vName)
+void GLWidget::updateTexture(TexturePoolItem* textures[3])
 {
-    m_texture[0] = yName;
-    m_texture[1] = uName;
-    m_texture[2] = vName;
+    QMutexLocker locker(&m_mutex);
+    for (int i = 0; i < 3; ++i) {
+        if (m_texture[i])
+            releaseTexture(m_texture[i]);
+        m_texture[i] = textures[i];
+    }
     quickWindow()->update();
 }
 
@@ -770,18 +821,17 @@ void RenderThread::run()
     }
 }
 
-FrameRenderer::FrameRenderer(QOpenGLContext* shareContext, QSurface* surface)
+FrameRenderer::FrameRenderer(GLWidget* glwidget, QOpenGLContext* shareContext, QSurface* surface)
      : QThread(0)
      , m_semaphore(3)
      , m_context(0)
      , m_surface(surface)
      , m_previousMSecs(QDateTime::currentMSecsSinceEpoch())
      , m_imageRequested(false)
+     , m_glwidget(glwidget)
      , m_gl32(0)
 {
     Q_ASSERT(shareContext);
-    m_renderTexture[0] = m_renderTexture[1] = m_renderTexture[2] = 0;
-    m_displayTexture[0] = m_displayTexture[1] = m_displayTexture[2] = 0;
     if (Settings.playerGPU() || shareContext->supportsThreadedOpenGL()) {
         m_context = new QOpenGLContext;
         m_context->setFormat(shareContext->format());
@@ -816,15 +866,24 @@ void FrameRenderer::showFrame(Mlt::Frame frame)
         m_context->makeCurrent(m_surface);
         QOpenGLFunctions* f = m_context->functions();
 
-        uploadTextures(m_context, m_displayFrame, m_renderTexture);
+        TexturePoolItem* textures[3] = {0, 0, 0};
+        GLuint gltextures[3] = {0, 0, 0};
+        int textureCount = (m_displayFrame.get_image_format() == mlt_image_rgb24)? 1 : 3;
+        for (int i = 0; i < textureCount; ++i) {
+            int width = m_displayFrame.get_image_width();
+            int height = m_displayFrame.get_image_height();
+            GLint format = (m_displayFrame.get_image_format() == mlt_image_rgb24)? GL_RGB : GL_LUMINANCE;
+            textures[i] = m_glwidget->getTexture(f, width, height, format);
+            gltextures[i] = textures[i]->texture;
+            check_error(f);
+        }
+        uploadTextures(m_context, m_displayFrame, gltextures);
         f->glBindTexture(GL_TEXTURE_2D, 0);
         check_error(f);
         f->glFinish();
-
-        for (int i = 0; i < 3; ++i)
-            qSwap(m_renderTexture[i], m_displayTexture[i]);
-        emit textureReady(m_displayTexture[0], m_displayTexture[1], m_displayTexture[2]);
         m_context->doneCurrent();
+
+        m_glwidget->updateTexture(textures);
 
         // Throttle the frequency of frameDisplayed signals to prevent them from
         // interfering with timely and smooth video updates.
@@ -856,13 +915,4 @@ SharedFrame FrameRenderer::getDisplayFrame()
 void FrameRenderer::cleanup()
 {
     LOG_DEBUG() << "begin";
-    if (m_renderTexture[0] && m_renderTexture[1] && m_renderTexture[2]) {
-        m_context->makeCurrent(m_surface);
-        m_context->functions()->glDeleteTextures(3, m_renderTexture);
-        if (m_displayTexture[0] && m_displayTexture[1] && m_displayTexture[2])
-            m_context->functions()->glDeleteTextures(3, m_displayTexture);
-        m_context->doneCurrent();
-        m_renderTexture[0] = m_renderTexture[1] = m_renderTexture[2] = 0;
-        m_displayTexture[0] = m_displayTexture[1] = m_displayTexture[2] = 0;
-    }
 }
