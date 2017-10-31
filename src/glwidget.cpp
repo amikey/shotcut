@@ -676,7 +676,7 @@ int GLWidget::reconfigure(bool isMulti)
                 m_threadStartEvent = m_consumer->listen("consumer-thread-started", this, (mlt_listener) onThreadStarted);
             if (!m_threadStopEvent)
                 m_threadStopEvent = m_consumer->listen("consumer-thread-stopped", this, (mlt_listener) onThreadStopped);
-            m_consumer->set("mlt_image_format", "rgb24a");
+            m_consumer->set("mlt_image_format", "rgb24");
         } else {
             emit started();
         }
