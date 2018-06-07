@@ -129,7 +129,6 @@ private:
     float m_zoom;
     QPoint m_offset;
     QOffscreenSurface m_offscreenSurface;
-    QOpenGLContext* m_shareContext;
     SharedFrame m_sharedFrame;
     QMutex m_mutex;
     QUrl m_savedQmlSource;
@@ -199,7 +198,6 @@ private:
 public:
     GLuint m_renderTexture[3];
     GLuint m_displayTexture[3];
-    QOpenGLFunctions_3_2_Core* m_gl32;
 };
 
 } // namespace

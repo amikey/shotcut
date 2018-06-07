@@ -33,21 +33,10 @@
 #include "qmltypes/qmlfilter.h"
 #include "mainwindow.h"
 
-#define USE_GL_SYNC // Use glFinish() if not defined.
-
 #ifdef QT_NO_DEBUG
 #define check_error(fn) {}
 #else
 #define check_error(fn) { int err = fn->glGetError(); if (err != GL_NO_ERROR) { LOG_ERROR() << "GL error"  << hex << err << dec << "at" << __FILE__ << ":" << __LINE__; } }
-#endif
-
-#ifndef GL_TIMEOUT_IGNORED
-#define GL_TIMEOUT_IGNORED 0xFFFFFFFFFFFFFFFFull
-#endif
-
-#ifndef Q_OS_WIN
-typedef GLenum (*ClientWaitSync_fp) (GLsync sync, GLbitfield flags, GLuint64 timeout);
-static ClientWaitSync_fp ClientWaitSync = 0;
 #endif
 
 using namespace Mlt;
@@ -66,7 +55,6 @@ GLWidget::GLWidget(QObject *parent)
     , m_frameRenderer(0)
     , m_zoom(0.0f)
     , m_offset(QPoint(0, 0))
-    , m_shareContext(0)
 {
     LOG_DEBUG() << "begin";
     m_texture[0] = m_texture[1] = m_texture[2] = 0;
@@ -108,7 +96,6 @@ GLWidget::~GLWidget()
         m_frameRenderer->wait();
         m_frameRenderer->deleteLater();
     }
-    delete m_shareContext;
     delete m_shader;
 }
 
@@ -138,31 +125,7 @@ void GLWidget::initializeGL()
 
     createShader();
 
-#if defined(USE_GL_SYNC) && !defined(Q_OS_WIN)
-    // getProcAddress is not working for me on Windows.
-    if (Settings.playerGPU()) {
-        if (m_glslManager && quickWindow()->openglContext()->hasExtension("GL_ARB_sync")) {
-            ClientWaitSync = (ClientWaitSync_fp) quickWindow()->openglContext()->getProcAddress("glClientWaitSync");
-        }
-        if (!ClientWaitSync) {
-            emit gpuNotSupported();
-            delete m_glslManager;
-            m_glslManager = 0;
-        }
-    }
-#endif
-
     quickWindow()->openglContext()->doneCurrent();
-    if (m_glslManager) {
-        // Create a context sharing with this context for the RenderThread context.
-        // This is needed because openglContext() is active in another thread
-        // at the time that RenderThread is created.
-        // See this Qt bug for more info: https://bugreports.qt.io/browse/QTBUG-44677
-        m_shareContext = new QOpenGLContext;
-        m_shareContext->setFormat(quickWindow()->openglContext()->format());
-        m_shareContext->setShareContext(quickWindow()->openglContext());
-        m_shareContext->create();
-    }
     m_frameRenderer = new FrameRenderer(quickWindow()->openglContext(), &m_offscreenSurface);
     quickWindow()->openglContext()->makeCurrent(quickWindow());
 
@@ -282,12 +245,14 @@ static void uploadTextures(QOpenGLContext* context, SharedFrame& frame, GLuint t
     int height = frame.get_image_height();
     const uint8_t* image = frame.get_image();
     QOpenGLFunctions* f = context->functions();
+    int textureCount = (frame.get_image_format() == mlt_image_rgb24) ? 1 : 3;
+    GLint format = (textureCount == 1)? GL_RGB : GL_LUMINANCE;
 
     // Upload each plane of YUV to a texture.
     if (texture[0])
-        f->glDeleteTextures(3, texture);
+        f->glDeleteTextures(textureCount, texture);
     check_error(f);
-    f->glGenTextures(3, texture);
+    f->glGenTextures(textureCount, texture);
     check_error(f);
 
     f->glBindTexture  (GL_TEXTURE_2D, texture[0]);
@@ -300,37 +265,40 @@ static void uploadTextures(QOpenGLContext* context, SharedFrame& frame, GLuint t
     check_error(f);
     f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     check_error(f);
-    f->glTexImage2D   (GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0,
-                    GL_LUMINANCE, GL_UNSIGNED_BYTE, image);
+    f->glTexImage2D   (GL_TEXTURE_2D, 0, format, width, height, 0,
+                    format, GL_UNSIGNED_BYTE, image);
     check_error(f);
 
-    f->glBindTexture  (GL_TEXTURE_2D, texture[1]);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    check_error(f);
-    f->glTexImage2D   (GL_TEXTURE_2D, 0, GL_LUMINANCE, width/2, height/2, 0,
-                    GL_LUMINANCE, GL_UNSIGNED_BYTE, image + width * height);
-    check_error(f);
-
-    f->glBindTexture  (GL_TEXTURE_2D, texture[2]);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    check_error(f);
-    f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    check_error(f);
-    f->glTexImage2D   (GL_TEXTURE_2D, 0, GL_LUMINANCE, width/2, height/2, 0,
-                    GL_LUMINANCE, GL_UNSIGNED_BYTE, image + width * height + width/2 * height/2);
-    check_error(f);
+    if (texture[1]) {
+        f->glBindTexture  (GL_TEXTURE_2D, texture[1]);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        check_error(f);
+        f->glTexImage2D   (GL_TEXTURE_2D, 0, GL_LUMINANCE, width/2, height/2, 0,
+                        GL_LUMINANCE, GL_UNSIGNED_BYTE, image + width * height);
+        check_error(f);
+    }
+    if (texture[2]) {
+        f->glBindTexture  (GL_TEXTURE_2D, texture[2]);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        check_error(f);
+        f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        check_error(f);
+        f->glTexImage2D   (GL_TEXTURE_2D, 0, GL_LUMINANCE, width/2, height/2, 0,
+                        GL_LUMINANCE, GL_UNSIGNED_BYTE, image + width * height + width/2 * height/2);
+        check_error(f);
+    }
 }
 
 void GLWidget::paintGL()
@@ -359,16 +327,9 @@ void GLWidget::paintGL()
         }
         uploadTextures(quickWindow()->openglContext(), m_sharedFrame, m_texture);
         m_mutex.unlock();
-    } else if (m_glslManager) {
-        m_mutex.lock();
-        if (m_sharedFrame.is_valid()) {
-            m_texture[0] = *((GLuint*) m_sharedFrame.get_image());
-        }
     }
 
     if (!m_texture[0]) {
-        if (m_glslManager)
-            m_mutex.unlock();
         return;
     }
 
@@ -451,11 +412,6 @@ void GLWidget::paintGL()
     }
     glActiveTexture(GL_TEXTURE0);
     check_error(f);
-
-    if (m_glslManager) {
-        glFinish(); check_error(f);
-        m_mutex.unlock();
-    }
 }
 
 void GLWidget::mousePressEvent(QMouseEvent* event)
@@ -514,7 +470,7 @@ void GLWidget::createThread(RenderThread **thread, thread_function_t function, v
         m_initSem.acquire();
     }
 #endif
-    (*thread) = new RenderThread(function, data, m_shareContext, &m_offscreenSurface);
+    (*thread) = new RenderThread(function, data, quickWindow()->openglContext(), &m_offscreenSurface);
     (*thread)->start();
 }
 
@@ -657,8 +613,7 @@ int GLWidget::reconfigure(bool isMulti)
                 m_threadStartEvent = m_consumer->listen("consumer-thread-started", this, (mlt_listener) onThreadStarted);
             if (!m_threadStopEvent)
                 m_threadStopEvent = m_consumer->listen("consumer-thread-stopped", this, (mlt_listener) onThreadStopped);
-            if (!serviceName.startsWith("decklink") && !isMulti)
-                m_consumer->set("mlt_image_format", "glsl");
+            m_consumer->set("mlt_image_format", "rgb24");
         } else {
             emit started();
         }
@@ -783,10 +738,13 @@ RenderThread::RenderThread(thread_function_t function, void *data, QOpenGLContex
     , m_context(0)
     , m_surface(surface)
 {
-    if (context) {
+    if (Settings.playerGPU() && context) {
+        QSurfaceFormat format(context->format());
+        format.setMajorVersion(3);
+        format.setMinorVersion(0);
+        format.setProfile(QSurfaceFormat::CoreProfile);
         m_context = new QOpenGLContext;
-        m_context->setFormat(context->format());
-        m_context->setShareContext(context);
+        m_context->setFormat(format);
         m_context->create();
         m_context->moveToThread(this);
     }
@@ -811,7 +769,6 @@ FrameRenderer::FrameRenderer(QOpenGLContext* shareContext, QSurface* surface)
      , m_surface(surface)
      , m_previousMSecs(QDateTime::currentMSecsSinceEpoch())
      , m_imageRequested(false)
-     , m_gl32(0)
 {
     Q_ASSERT(shareContext);
     m_renderTexture[0] = m_renderTexture[1] = m_renderTexture[2] = 0;
@@ -832,94 +789,32 @@ FrameRenderer::~FrameRenderer()
 {
     LOG_DEBUG() << "begin";
     delete m_context;
-    delete m_gl32;
 }
 
 void FrameRenderer::showFrame(Mlt::Frame frame)
 {
+    mlt_image_format format = Settings.playerGPU()? mlt_image_rgb24 : mlt_image_yuv420p;
     int width = 0;
     int height = 0;
 
-    if (!Settings.playerGPU()) {
-        // Convert the image format before creating the SharedFrame.
-        mlt_image_format format = mlt_image_yuv420p;
-        int width = 0;
-        int height = 0;
-        frame.get_image(format, width, height);
-        m_displayFrame = SharedFrame(frame);
-    }
+    frame.get_image(format, width, height);
+    m_displayFrame = SharedFrame(frame);
 
     Q_ASSERT(m_surface->surfaceHandle());
     if (m_context && m_context->isValid()) {
-        if (Settings.playerGPU()) {
-            frame.set("movit.convert.use_texture", 1);
-            mlt_image_format format = mlt_image_glsl_texture;
-            const GLuint* textureId = (GLuint*) frame.get_image(format, width, height);
+        // Using a threaded OpenGL to upload textures.
+        m_context->makeCurrent(m_surface);
+        QOpenGLFunctions* f = m_context->functions();
 
-            m_context->makeCurrent(m_surface);
-#ifdef USE_GL_SYNC
-            GLsync sync = (GLsync) frame.get_data("movit.convert.fence");
-            if (sync) {
-#ifdef Q_OS_WIN
-                // On Windows, use QOpenGLFunctions_3_2_Core instead of getProcAddress.
-                if (!m_gl32) {
-                    m_gl32 = m_context->versionFunctions<QOpenGLFunctions_3_2_Core>();
-                    if (m_gl32)
-                        m_gl32->initializeOpenGLFunctions();
-                }
-                if (m_gl32) {
-                    m_gl32->glClientWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-                    check_error(m_gl32);
-                }
-#else
-                if (ClientWaitSync) {
-                    ClientWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-                    check_error(m_context->functions());
-                }
-#endif // Q_OS_WIN
-            }
-#else
-            m_context->functions()->glFinish();
-#endif // USE_GL_FENCE
+        uploadTextures(m_context, m_displayFrame, m_renderTexture);
+        f->glBindTexture(GL_TEXTURE_2D, 0);
+        check_error(f);
+        f->glFinish();
 
-            if (m_imageRequested) {
-                m_imageRequested = false;
-                int imageSizeBytes = width * height * 4;
-                uchar* image = (uchar*) mlt_pool_alloc(imageSizeBytes);
-                QOpenGLFunctions_1_1* f = m_context->versionFunctions<QOpenGLFunctions_1_1>();
-
-                f->glBindTexture(GL_TEXTURE_2D, *textureId);
-                check_error(f);
-                f->glGetTexImage(GL_TEXTURE_2D, 0, GL_BGRA, GL_UNSIGNED_BYTE, image);
-                check_error(f);
-                f->glBindTexture(GL_TEXTURE_2D, 0);
-
-                m_image = QImage(width, height, QImage::Format_ARGB32);
-                memcpy(m_image.scanLine(0), image, imageSizeBytes);
-                mlt_pool_release(image);
-                emit imageReady();
-            }
-            
-            m_context->doneCurrent();
-
-            // Save this frame for future use and to keep a reference to the GL Texture.
-            m_displayFrame = SharedFrame(frame);
-        }
-        else {
-            // Using a threaded OpenGL to upload textures.
-            m_context->makeCurrent(m_surface);
-            QOpenGLFunctions* f = m_context->functions();
-
-            uploadTextures(m_context, m_displayFrame, m_renderTexture);
-            f->glBindTexture(GL_TEXTURE_2D, 0);
-            check_error(f);
-            f->glFinish();
-
-            for (int i = 0; i < 3; ++i)
-                qSwap(m_renderTexture[i], m_displayTexture[i]);
-            emit textureReady(m_displayTexture[0], m_displayTexture[1], m_displayTexture[2]);
-            m_context->doneCurrent();
-        }
+        for (int i = 0; i < 3; ++i)
+            qSwap(m_renderTexture[i], m_displayTexture[i]);
+        emit textureReady(m_displayTexture[0], m_displayTexture[1], m_displayTexture[2]);
+        m_context->doneCurrent();
     }
     emit frameDisplayed(m_displayFrame);
 
