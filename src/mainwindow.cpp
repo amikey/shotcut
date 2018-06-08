@@ -3368,22 +3368,8 @@ void MainWindow::on_actionExportEDL_triggered()
 
 void MainWindow::on_actionExportFrame_triggered()
 {
-    if (Settings.playerGPU()) {
-        Mlt::GLWidget* glw = qobject_cast<Mlt::GLWidget*>(MLT.videoWidget());
-        connect(glw, SIGNAL(imageReady()), SLOT(onGLWidgetImageReady()));
-        glw->requestImage();
-        MLT.refreshConsumer();
-    } else {
-        onGLWidgetImageReady();
-    }
-}
-
-void MainWindow::onGLWidgetImageReady()
-{
     Mlt::GLWidget* glw = qobject_cast<Mlt::GLWidget*>(MLT.videoWidget());
     QImage image = glw->image();
-    if (Settings.playerGPU())
-        disconnect(glw, SIGNAL(imageReady()), this, 0);
     if (!image.isNull()) {
         QString path = Settings.savePath();
         path.append("/.png");

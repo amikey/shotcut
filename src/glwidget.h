@@ -84,7 +84,6 @@ public:
     float zoom() const { return m_zoom * MLT.profile().width() / m_rect.width(); }
     QPoint offset() const;
     QImage image() const;
-    void requestImage() const;
 
 public slots:
     void onFrameDisplayed(const SharedFrame& frame);
@@ -105,7 +104,6 @@ signals:
     void rectChanged();
     void zoomChanged();
     void offsetChanged();
-    void imageReady();
 
 private:
     QRect m_rect;
@@ -175,8 +173,6 @@ public:
     QOpenGLContext* context() const { return m_context; }
     SharedFrame getDisplayFrame();
     Q_INVOKABLE void showFrame(Mlt::Frame frame);
-    void requestImage();
-    QImage image() const { return m_image; }
 
 public slots:
     void cleanup();
@@ -184,7 +180,6 @@ public slots:
 signals:
     void textureReady(GLuint yName, GLuint uName = 0, GLuint vName = 0);
     void frameDisplayed(const SharedFrame& frame);
-    void imageReady();
 
 private:
     QSemaphore m_semaphore;
@@ -192,8 +187,6 @@ private:
     QOpenGLContext* m_context;
     QSurface* m_surface;
     qint64 m_previousMSecs;
-    bool m_imageRequested;
-    QImage m_image;
 
 public:
     GLuint m_renderTexture[3];

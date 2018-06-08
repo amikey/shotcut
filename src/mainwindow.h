@@ -276,7 +276,6 @@ private slots:
     void onClipCopied();
     void on_actionExportEDL_triggered();
     void on_actionExportFrame_triggered();
-    void onGLWidgetImageReady();
     void on_actionAppDataSet_triggered();
     void on_actionAppDataShow_triggered();
     void on_actionNew_triggered();
