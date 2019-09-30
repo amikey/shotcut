@@ -4,13 +4,13 @@ services:
 before_install:
   - docker pull ddennedy/shotcut-build
 script:
-  - export VERSION=$(date +"%%y%%m%%d")
+  - export VERSION=$(date +"%y%m%d")
   - echo "VERSION = $VERSION"
 #  - docker run -v $PWD/scripts:/root/shotcut ddennedy/shotcut-build ./build-shotcut.sh
-  - ls -ltr /root/shotcut
+  - ls -ltrF scripts
 #  - mkdir deploy
-#  - mv shotcut/shotcut.txz deploy/shotcut-linux-x86_64-$VERSION.txz
-#  - mv shotcut/src.tar.xz deploy/shotcut-src-$VERSION.txz
+#  - mv scripts/shotcut/shotcut.txz deploy/shotcut-linux-x86_64-$VERSION.txz
+#  - mv scripts/shotcut/src.tar.xz deploy/shotcut-src-$VERSION.txz
 deploy:
   - provider: s3
   - edge: true
