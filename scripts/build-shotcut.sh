@@ -2220,6 +2220,11 @@ function deploy_win32
       cmd cd ..
       cmd zip -gr shotcut-sdk.zip Shotcut
     fi
+  else
+    log Making Windows installer
+    cd ..
+    cmd zip -gr shotcut.zip Shotcut
+    cmd makensis shotcut.nsi
   fi
   popd
 }
