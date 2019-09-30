@@ -4,4 +4,5 @@ services:
 before_install:
   - docker pull ddennedy/shotcut-build
 script:
-  - docker run -v $PWD:/root -w /root ddennedy/shotcut-build scripts/build-shotcut.sh
+  - docker run -v $PWD:/root/shotcut ddennedy/shotcut-build mltframework/shotcut/scripts/build-shotcut.sh
+  - ls -ltr
