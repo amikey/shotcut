@@ -10,8 +10,8 @@ script:
   - mkdir deploy
   - cp scripts/shotcut.txz deploy/shotcut-linux-x86_64-$VERSION.txz
   - cp scripts/src.tar.xz deploy/shotcut-src-$VERSION.txz
-  - ls -lF
-  - sudo rm -rf shotcut.txz src.tar.xz Shotcut src
+  - ls -lF scripts
+  - sudo rm -rf scripts/shotcut.txz scripts/src.tar.xz scripts/Shotcut scripts/src
   - docker run -v $PWD/scripts:/root/shotcut ddennedy/shotcut-build ./build-shotcut.sh -o Win64
   - cp scripts/shotcut-setup.exe deploy/shotcut-win64-$VERSION.exe
   - cp scripts/shotcut.zip deploy/shotcut-win64-$VERSION.zip
