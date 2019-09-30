@@ -9,8 +9,8 @@ script:
   - docker run -v $PWD/scripts:/root/shotcut ddennedy/shotcut-build ./build-shotcut.sh
   - ls -ltrF scripts
   - mkdir deploy
-  - mv scripts/shotcut/shotcut.txz deploy/shotcut-linux-x86_64-$VERSION.txz
-  - mv scripts/shotcut/src.tar.xz deploy/shotcut-src-$VERSION.txz
+  - cp scripts/shotcut.txz deploy/shotcut-linux-x86_64-$VERSION.txz
+  - cp scripts/src.tar.xz deploy/shotcut-src-$VERSION.txz
 deploy:
   - provider: s3
   - edge: true
